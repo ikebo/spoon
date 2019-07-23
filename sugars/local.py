@@ -1,6 +1,7 @@
+# coding: utf-8
+
 try:
     from greenlet import greenlet
-
     get_current_greenlet = greenlet.getcurrent
     del greenlet
 except:
@@ -15,6 +16,9 @@ else:
 
 
 class Local(object):
+    """
+        类似ThreadLocal的实现, 可以应付协程场景。
+    """
     __slots__ = ('__storage__', '__lock__')
 
     def __init__(self):
@@ -58,7 +62,10 @@ class Local(object):
 
 
 class LocalStack(object):
-
+    """
+        Local封装, 可以用使用Stack的方式压入弹出变量
+        可优雅处理请求上下文
+    """
     def __init__(self):
         self._local = Local()
         self._lock = allocate_lock()
@@ -94,7 +101,21 @@ class LocalStack(object):
 
 
 class LocalProxy(object):
+    """
+        代理Local中特定对象， 如：
+        lc = Local()
+        lc.a = 1
+        lc.b = 2
+        a = LocalProxy(lc, 'a')
+        则不同的上下文中a的值就是当前上下文的a，对于使用者来说相当于全局变量, 但内部又是
+        动态绑定的，优雅不 :)
 
+        当传入的不是一个Local对象时, 则会调用这个参数， 如：
+        _request_ctx_stack = LocalStack()
+        _request_ctx_stack.push(_RequestContext())
+        request = LocalProxy(lambda: _request_ctx_stack.top.request)
+        每次使用request时，都会动态获得当前上下文的request :)
+    """
     __slots__ = ('__local__', '__dict__', '__name__')
 
     def __init__(self, local, name=None):
