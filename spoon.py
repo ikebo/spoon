@@ -3,6 +3,7 @@
 from werkzeug.routing import Map, Rule
 from werkzeug.wrappers import Request as BaseRequest
 from werkzeug.wrappers import Response as BaseResponse
+from werkzeug.exceptions import HTTPException
 
 from sugars.local import LocalStack, LocalProxy
 
@@ -35,8 +36,6 @@ class _RequestContext(object):
 
 
 class Spoon:
-    config = {}
-
     request_class = Request
 
     response_class = Response
@@ -44,6 +43,18 @@ class Spoon:
     def __init__(self):
         self.url_map = Map()  # 路由Map
         self.view_funcs = {}
+        self.error_handlers = {}
+        self.config = {}
+
+    def errorhandler(self, code):
+        """
+            错误处理函数装饰器
+        :param code: 错误状态码, 如404，500等。
+        """
+        def decorator(func):
+            self.error_handlers[code] = func
+            return func
+        return decorator
 
     def make_response(self, rv):
         if isinstance(rv, self.response_class):
@@ -54,11 +65,20 @@ class Spoon:
             return self.response_class(*rv)
         return self.response_class.force_type(rv, _request_ctx_stack.top.request.environ)
 
-
     def dispatch_request(self):
-        endpoint, values = _request_ctx_stack.top.url_adapter.match()
-        rv = self.view_funcs[endpoint](**values)
-        return rv
+        try:
+            endpoint, values = _request_ctx_stack.top.url_adapter.match()
+            return self.view_funcs[endpoint](**values)
+        except HTTPException, e:
+            handler = self.error_handlers.get(e.code)
+            if handler is None:
+                return e
+            return handler(e)
+        except Exception, e:
+            handler = self.error_handlers.get(500)
+            if self.config.get('debug') or handler is None:
+                raise
+            return handler(e)
 
     def application(self, environ, start_response):
         with _RequestContext(self, environ):
@@ -90,4 +110,4 @@ class Spoon:
 
 
 _request_ctx_stack = LocalStack()
-request = LocalProxy(lambda : _request_ctx_stack.top.request)
+request = LocalProxy(lambda: _request_ctx_stack.top.request)

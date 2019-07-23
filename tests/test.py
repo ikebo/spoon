@@ -11,6 +11,7 @@ import sys
 
 @app.route('/', methods=['GET'])
 def index():
+    1/0
     return "Hello, Index!"
 
 
@@ -30,6 +31,14 @@ def spoon(spoon_id):
     print("headers: ", request.headers)
     return 'Hello, Spoon, NO.{}'.format(spoon_id)
 
+
+@app.errorhandler(404)
+def handle_404(e):
+    return 'not found', 404
+
+@app.errorhandler(500)
+def handle_500(e):
+    return 'server internel error', 500
 
 app.run(
     'localhost',
