@@ -1,6 +1,6 @@
 .PHONY: clean-pyc test
 
-all: clean-pyc test
+all: test clean-pyc
 
 test:
 	python tests/spoon_tests.py
