@@ -1,5 +1,9 @@
 # coding: utf8
 
+import os
+import sys
+
+from jinja2 import PackageLoader, Environment
 from werkzeug.routing import Map, Rule
 from werkzeug.wrappers import Request as BaseRequest
 from werkzeug.wrappers import Response as BaseResponse
@@ -35,16 +39,61 @@ class _RequestContext(object):
             _request_ctx_stack.pop()
 
 
+
+def _get_package_path(name):
+    try:
+        return os.path.abspath(os.path.dirname(sys.modules[name].__file__))
+    except (KeyError, AttributeError):
+        return os.getcwd()
+
+
+def render_template(template_name, **context):
+    current_app.update_template_context(context)
+    return current_app.jinja_env.get_template(template_name).render(context)
+
+
+def _default_template_ctx_processor():
+    reqctx = _request_ctx_stack.top
+    return dict(
+        request=reqctx.request,
+        g=reqctx.g
+    )
+
+
+def url_for(endpoint, **values):
+    return _request_ctx_stack.top.url_adapter.build(endpoint, values)
+
+
 class Spoon:
     request_class = Request
 
     response_class = Response
 
-    def __init__(self):
+    jinja_options = dict(
+        autoescape=True,
+        extensions=['jinja2.ext.autoescape', 'jinja2.ext.with_']
+    )
+
+    def __init__(self, package_name):
+        self.package_name = package_name
+        self.root_path = _get_package_path(self.package_name)
         self.url_map = Map()  # 路由Map
         self.view_funcs = {}
         self.error_handlers = {}
         self.config = {}
+        self.template_context_processors = [_default_template_ctx_processor]
+        self.jinja_env = Environment(loader=self.create_jinja_loader(),
+                                     **self.jinja_options)
+        self.jinja_env.globals.update(
+            url_for=url_for,
+        )
+
+    def create_jinja_loader(self):
+        return PackageLoader(self.package_name)
+
+    def update_template_context(self, context):
+        for func in self.template_context_processors:
+            context.update(func())
 
     def errorhandler(self, code):
         """
@@ -111,3 +160,5 @@ class Spoon:
 
 _request_ctx_stack = LocalStack()
 request = LocalProxy(lambda: _request_ctx_stack.top.request)
+current_app = LocalProxy(lambda: _request_ctx_stack.top.app)
+g = LocalProxy(lambda: _request_ctx_stack.top.g)
