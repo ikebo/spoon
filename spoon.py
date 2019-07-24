@@ -72,6 +72,11 @@ class _RequestContext(object):
 
 
 def _get_package_path(name):
+    """
+        根据模块名获取包的路径, 用于构造jinja2的PackageLoader
+    :param name:
+    :return:
+    """
     try:
         return os.path.abspath(os.path.dirname(sys.modules[name].__file__))
     except (KeyError, AttributeError):
@@ -79,11 +84,22 @@ def _get_package_path(name):
 
 
 def render_template(template_name, **context):
+    """
+        渲染模版, 先更新context(如加入request, session, g等.),
+        再用jinja_env渲染(jinja_env.global.update， 可添加自定义函数)
+    :param template_name:
+    :param context:
+    :return:
+    """
     current_app.update_template_context(context)
     return current_app.jinja_env.get_template(template_name).render(context)
 
 
 def _default_template_ctx_processor():
+    """
+        添加额外的context
+    :return:
+    """
     reqctx = _request_ctx_stack.top
     return dict(
         request=reqctx.request,
@@ -92,6 +108,12 @@ def _default_template_ctx_processor():
 
 
 def url_for(endpoint, **values):
+    """
+        根据endpoint和参数构造url, 默认结果是相对路径
+    :param endpoint:
+    :param values:
+    :return:
+    """
     return _request_ctx_stack.top.url_adapter.build(endpoint, values)
 
 
@@ -128,6 +150,11 @@ class Spoon:
 
 
     def update_template_context(self, context):
+        """
+            更新jinja2上下文
+        :param context:
+        :return:
+        """
         for func in self.template_context_processors:
             context.update(func())
 
