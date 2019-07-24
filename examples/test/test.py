@@ -2,6 +2,7 @@
 
 import sys
 import os
+from hashlib import md5
 from datetime import datetime
 
 sys.path[0] = os.path.abspath('../../')
@@ -24,7 +25,14 @@ def date_format(date_str):
     return do.strftime('%b %d, %Y')
 
 
+def gravatar_url(email, size=80):
+    """Return the gravatar image for the given email address."""
+    return 'http://www.gravatar.com/avatar/%s?d=identicon&s=%d' % \
+        (md5(email.strip().lower().encode('utf-8')).hexdigest(), size)
+
+
 app.jinja_env.globals.update(add=add, date_format=date_format)
+app.jinja_env.filters["gavatar"] = gravatar_url
 
 import sys
 

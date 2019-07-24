@@ -15,10 +15,14 @@ import sys
 from jinja2 import PackageLoader, Environment
 from werkzeug.contrib.securecookie import SecureCookie
 from werkzeug.routing import Map, Rule
+from werkzeug.test import create_environ
 from werkzeug.wrappers import Request as BaseRequest
 from werkzeug.wrappers import Response as BaseResponse
 from werkzeug.exceptions import HTTPException
 from werkzeug.wsgi import SharedDataMiddleware
+from werkzeug.utils import redirect
+from werkzeug.exceptions import abort
+from jinja2 import Markup, escape
 
 from sugars.local import LocalStack, LocalProxy
 
@@ -79,7 +83,7 @@ def flash(message):
     session['_flashes'] = (session.get('_flashes', [])) + [message]
 
 
-def get_flashed_message():
+def get_flashed_messages():
     flashes = _request_ctx_stack.top.flashes
     if flashes is None:
         _request_ctx_stack.top.flashes = flashes = \
@@ -166,6 +170,7 @@ class Spoon:
                                      **self.jinja_options)
         self.jinja_env.globals.update(
             url_for=url_for,
+            get_flashed_messages=get_flashed_messages,
         )
 
         if self.static_path is not None:
@@ -181,10 +186,20 @@ class Spoon:
             })
 
     def before_request(self, func):
+        """
+            所有请求转发之前都要经过的函数的装饰器
+        :param func:
+        :return:
+        """
         self.before_request_funcs.append(func)
         return func
 
     def after_request(self, func):
+        """
+            所有请求经视图函数处理完成后都要经过的函数的装饰器
+        :param func:
+        :return:
+        """
         self.after_request_funcs.append(func)
         return func
 
@@ -214,6 +229,21 @@ class Spoon:
 
     def create_jinja_loader(self):
         return PackageLoader(self.package_name)
+
+    def context_processor(self, func):
+        """
+            添加模板变量的函数
+        :param func:
+        :return:
+        """
+        self.template_context_processors.append(func)
+        return func
+
+    def request_context(self, environ):
+        return _RequestContext(self, environ)
+
+    def test_request_context(self, *args, **kwargs):
+        return self.request_context(create_environ(*args, **kwargs))
 
     def update_template_context(self, context):
         """
@@ -313,7 +343,11 @@ class Spoon:
 
         return decorator
 
-    def run(self, host, port, **options):
+    def test_client(self):
+        from werkzeug.test import Client
+        return Client(self, self.response_class, use_cookies=True)
+
+    def run(self, host='localhost', port=5000, **options):
         """
             启动wekzeug中的简单server, 可用于调试
         :param host: 主机地址, 设置为0.0.0.0可开放访问
