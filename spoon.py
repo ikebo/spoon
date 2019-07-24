@@ -17,6 +17,7 @@ from werkzeug.routing import Map, Rule
 from werkzeug.wrappers import Request as BaseRequest
 from werkzeug.wrappers import Response as BaseResponse
 from werkzeug.exceptions import HTTPException
+from werkzeug.wsgi import SharedDataMiddleware
 
 from sugars.local import LocalStack, LocalProxy
 
@@ -129,6 +130,7 @@ class Spoon:
         extensions=['jinja2.ext.autoescape', 'jinja2.ext.with_']
     )
 
+    static_path = '/static'
 
     def __init__(self, package_name):
         self.package_name = package_name
@@ -144,10 +146,20 @@ class Spoon:
             url_for=url_for,
         )
 
+        if self.static_path is not None:
+            """
+                用werkzeug中的SharedDataMiddleware托管静态文件
+            """
+            self.url_map.add(Rule(self.static_path + '/<filename>',
+                                  build_only=True, endpoint='static'))
+            target = os.path.join(self.root_path, 'static')
+
+            self.application = SharedDataMiddleware(self.application, {
+                self.static_path: target
+            })
 
     def create_jinja_loader(self):
         return PackageLoader(self.package_name)
-
 
     def update_template_context(self, context):
         """
@@ -157,7 +169,6 @@ class Spoon:
         """
         for func in self.template_context_processors:
             context.update(func())
-
 
     def errorhandler(self, code):
         """
@@ -170,7 +181,6 @@ class Spoon:
             return func
 
         return decorator
-
 
     def make_response(self, rv):
         """
@@ -186,7 +196,6 @@ class Spoon:
         if isinstance(rv, tuple):
             return self.response_class(*rv)
         return self.response_class.force_type(rv, _request_ctx_stack.top.request.environ)
-
 
     def dispatch_request(self):
         """
@@ -207,7 +216,6 @@ class Spoon:
                 raise
             return handler(e)
 
-
     def application(self, environ, start_response):
         """
             真正的wsgi application， 路由转发, 构造Response对象，
@@ -221,7 +229,6 @@ class Spoon:
             response = self.make_response(rv)
             return response(environ, start_response)
 
-
     def add_url_rule(self, rule, endpoint, **options):
         """
             添加路由
@@ -233,7 +240,6 @@ class Spoon:
         options['endpoint'] = endpoint
         options.setdefault('methods', ('GET',))
         self.url_map.add(Rule(rule, **options))
-
 
     def route(self, rule, **options):
         """
@@ -249,7 +255,6 @@ class Spoon:
             return func
 
         return decorator
-
 
     def run(self, host, port, **options):
         """
