@@ -13,6 +13,7 @@ import os
 import sys
 
 from jinja2 import PackageLoader, Environment
+from werkzeug.contrib.securecookie import SecureCookie
 from werkzeug.routing import Map, Rule
 from werkzeug.wrappers import Request as BaseRequest
 from werkzeug.wrappers import Response as BaseResponse
@@ -62,14 +63,28 @@ class _RequestContext(object):
         self.app = app
         self.url_adapter = app.url_map.bind_to_environ(environ)
         self.request = app.request_class(environ)
+        self.session = app.open_session(self.request)
         self.g = _RequestGlobals()
+        self.flashes = None
 
     def __enter__(self):
         _request_ctx_stack.push(self)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_tb is None or not self.app.config.get('debug', None):
+        if exc_tb is None or not self.app.debug:
             _request_ctx_stack.pop()
+
+
+def flash(message):
+    session['_flashes'] = (session.get('_flashes', [])) + [message]
+
+
+def get_flashed_message():
+    flashes = _request_ctx_stack.top.flashes
+    if flashes is None:
+        _request_ctx_stack.top.flashes = flashes = \
+            session.pop('_flashes', [])
+    return flashes
 
 
 def _get_package_path(name):
@@ -104,6 +119,7 @@ def _default_template_ctx_processor():
     reqctx = _request_ctx_stack.top
     return dict(
         request=reqctx.request,
+        session=reqctx.session,
         g=reqctx.g
     )
 
@@ -132,13 +148,19 @@ class Spoon:
 
     static_path = '/static'
 
+    secret_key = None
+
+    session_cookie_name = 'session'
+
     def __init__(self, package_name):
         self.package_name = package_name
         self.root_path = _get_package_path(self.package_name)
         self.url_map = Map()  # 路由Map
         self.view_funcs = {}
+        self.before_request_funcs = []
+        self.after_request_funcs = []
         self.error_handlers = {}
-        self.config = {}
+        self.debug = False
         self.template_context_processors = [_default_template_ctx_processor]
         self.jinja_env = Environment(loader=self.create_jinja_loader(),
                                      **self.jinja_options)
@@ -154,9 +176,41 @@ class Spoon:
                                   build_only=True, endpoint='static'))
             target = os.path.join(self.root_path, 'static')
 
-            self.application = SharedDataMiddleware(self.application, {
+            self.wsgi_app = SharedDataMiddleware(self.wsgi_app, {
                 self.static_path: target
             })
+
+    def before_request(self, func):
+        self.before_request_funcs.append(func)
+        return func
+
+    def after_request(self, func):
+        self.after_request_funcs.append(func)
+        return func
+
+    def preprocess_request(self):
+        for func in self.before_request_funcs:
+            rv = func()
+            if rv is not None:
+                return rv
+
+    def process_response(self, response):
+        session = _request_ctx_stack.top.session
+        if session is not None:
+            self.save_session(session, response)
+        for handler in self.after_request_funcs:
+            response = handler(response)
+        return response
+
+    def open_session(self, request):
+        key = self.secret_key
+        if key is not None:
+            return SecureCookie.load_cookie(request, self.session_cookie_name,
+                                            secret_key=key)
+
+    def save_session(self, session, response):
+        if session is not None:
+            session.save_cookie(response, self.session_cookie_name)
 
     def create_jinja_loader(self):
         return PackageLoader(self.package_name)
@@ -212,11 +266,11 @@ class Spoon:
             return handler(e)
         except Exception, e:
             handler = self.error_handlers.get(500)
-            if self.config.get('debug') or handler is None:
+            if self.debug or handler is None:
                 raise
             return handler(e)
 
-    def application(self, environ, start_response):
+    def wsgi_app(self, environ, start_response):
         """
             真正的wsgi application， 路由转发, 构造Response对象，
             最后调用response对象(也是一个 wsgi application)生成最终响应
@@ -225,8 +279,11 @@ class Spoon:
         :return:
         """
         with _RequestContext(self, environ):
-            rv = self.dispatch_request()
+            rv = self.preprocess_request()
+            if rv is None:
+                rv = self.dispatch_request()
             response = self.make_response(rv)
+            response = self.process_response(response)
             return response(environ, start_response)
 
     def add_url_rule(self, rule, endpoint, **options):
@@ -264,13 +321,17 @@ class Spoon:
         :param options:
         :return:
         """
-        self.config.update(options)
         from werkzeug.serving import run_simple
-        use_reloader = use_debugger = self.config.get('debug', False)
+        if 'debug' in options:
+            self.debug = options.pop('debug')
+        use_reloader = use_debugger = self.debug
         run_simple(host, port,
-                   self.application,
+                   self,
                    use_reloader=use_reloader,
                    use_debugger=use_debugger)
+
+    def __call__(self, environ, start_response):
+        return self.wsgi_app(environ, start_response)
 
 
 # 请求上下文栈
@@ -278,4 +339,5 @@ _request_ctx_stack = LocalStack()
 # 请求上下文的request LocalProxy，可动态获取当前上下文的request
 request = LocalProxy(lambda: _request_ctx_stack.top.request)
 current_app = LocalProxy(lambda: _request_ctx_stack.top.app)
+session = LocalProxy(lambda: _request_ctx_stack.top.session)
 g = LocalProxy(lambda: _request_ctx_stack.top.g)

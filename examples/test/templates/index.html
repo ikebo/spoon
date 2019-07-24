@@ -8,5 +8,10 @@
 <h3>Hello, Spoon!</h3>
 <a href="{{ url_for('spoon', spoon_id=1) }}">spoon</a>
 <img src="{{ url_for('static', filename='pot.png') }}" width="100px" height="100px">
+
+<p>Hi, {{ session["username"] }}</p>
+
+<p>add function:  2 + 3 = {{ add(2,3) }}</p>
+<p>date format function: 2019-07-23 00:00:00 -> {{ date_format('2019-07-23 00:00:00') }}</p>
 </body>
 </html>
