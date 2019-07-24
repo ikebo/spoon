@@ -10,6 +10,7 @@ Werkzeug>=0.6.1
 Jinja2>=2,4
 
 ## 使用
+``` python
 from spoon import Spoon
 
 app = Spoon(__name__)
@@ -20,3 +21,4 @@ def hello_world():
 
 if __name__ == '__main__':
     app.run(debug=True)
+```
