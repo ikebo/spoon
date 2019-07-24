@@ -1,19 +1,23 @@
 # coding: utf8
 
+import sys
+import os
+
+sys.path[0] = os.path.abspath('../')
+
 from spoon import Spoon
 from spoon import request
 from spoon import _request_ctx_stack
+from spoon import render_template
 
-app = Spoon()
+app = Spoon(__name__)
 
 import sys
 
 
 @app.route('/', methods=['GET'])
 def index():
-    1/0
-    return "Hello, Index!"
-
+    return render_template("index.html")
 
 def print_request(rq):
     for index, item in enumerate(rq):
